@@ -144,7 +144,12 @@ def main():
         '--packages-file', 
         help='Path to file containing package names (one per line)\nExample: --packages-file packages.txt'
     )
-    args = parser.parse_args()
+
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        parser.print_help()
+        return
 
     all_packages = get_all_packages()
 
