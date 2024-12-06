@@ -1,4 +1,0 @@
-2024-12-06 14:22:54,566 - INFO - Starting GitLab Explorer
-2024-12-06 14:22:54,566 - INFO - Attempting to retrieve GitLab groups
-2024-12-06 14:23:04,589 - ERROR - Connection timed out after 10 seconds. Please check your network connection and GitLab URL.
-2024-12-06 14:23:04,590 - INFO - GitLab Explorer completed
