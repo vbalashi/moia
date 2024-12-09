@@ -34,7 +34,8 @@ def initialize_docker_client():
 def get_log_file_path():
     """Generate a log file path with current timestamp."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"./logs/docker_push_log_{timestamp}.log"
+    script_name = os.path.splitext(os.path.basename(__file__))[0]
+    return f"./logs/{script_name}_{timestamp}.log"
 
 def read_file_lines(file_path):
     """Read lines from a file, stripping whitespace and ignoring empty lines."""
@@ -64,20 +65,34 @@ def push_image(client, tag, log_file, dry_run=True):
         elapsed_time = 0
     else:
         try:
+            # First check if the image exists locally
+            try:
+                client.images.get(tag)
+            except docker.errors.ImageNotFound:
+                result = "Image not found locally"
+                elapsed_time = time.time() - start_time
+                log_entry = f"\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds\n"
+                sys.stdout.write(log_entry)
+                sys.stdout.flush()
+                log_file.write(log_entry)
+                return
+
             response = client.images.push(tag, stream=True, decode=True)
-            total_bytes = 0
+            total_layers = 0
+            pushed_layers = 0
             last_update = start_time
             result = "Started push"
 
             for chunk in response:
                 if 'status' in chunk:
-                    if chunk['status'] == 'Pushed':
-                        result = "Pushed successfully"
-                    elif chunk['status'] == 'Layer already exists':
-                        result = "Layer already exists"
-                if 'progressDetail' in chunk and 'total' in chunk['progressDetail']:
-                    total_bytes = chunk['progressDetail']['total']
-
+                    status = chunk['status']
+                    if status == 'Pushing':
+                        total_layers += 1
+                    elif status == 'Layer already exists':
+                        pushed_layers += 1
+                    elif status == 'Pushed':
+                        pushed_layers += 1
+                    
                 current_time = time.time()
                 elapsed_time = current_time - start_time
                 if current_time - last_update >= 1:
@@ -85,10 +100,16 @@ def push_image(client, tag, log_file, dry_run=True):
                     sys.stdout.flush()
                     last_update = current_time
 
-            if not total_bytes:
-                result = "Image already exists in remote repository"
+            if pushed_layers > 0:
+                result = "Pushed successfully"
+            else:
+                result = "Push failed - no layers were pushed"
+
         except docker.errors.APIError as e:
-            result = f"Push failed: {e.explanation}"
+            if "denied" in str(e).lower():
+                result = f"Push failed: Access denied"
+            else:
+                result = f"Push failed: {e.explanation}"
         
         end_time = time.time()
         elapsed_time = end_time - start_time
