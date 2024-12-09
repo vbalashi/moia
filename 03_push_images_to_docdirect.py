@@ -46,7 +46,30 @@ def read_file_lines(file_path):
         print(f"Error reading file {file_path}: {str(e)}")
         return None
 
-def push_image(client, tag, log_file, dry_run=True):
+def docker_login(registry, token):
+    """
+    Attempt to login to Docker registry using GitLab token.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        client = docker.from_env()
+        auth_config = {
+            'username': 'oauth2',
+            'password': token
+        }
+        result = client.login(
+            registry=registry,
+            **auth_config
+        )
+        if result and 'Status' in result and 'succeeded' in result['Status'].lower():
+            print(f"Successfully logged in to {registry}")
+            return True
+        return False
+    except Exception as e:
+        print(f"Login failed: {str(e)}")
+        return False
+
+def push_image(client, tag, log_file, dry_run=True, token=None):
     """
     Push a single Docker image to the repository and log the results.
     
@@ -55,13 +78,14 @@ def push_image(client, tag, log_file, dry_run=True):
         tag: Image tag to push
         log_file: File object for logging
         dry_run: If True, only simulate the push operation
+        token: GitLab token for authentication
     """
-    print(f"Image: {tag}")
+    print(f"\nImage: {tag}")
     start_time = time.time()
     
     if dry_run:
         result = "DRY RUN - Push simulated"
-        sys.stdout.write(f"\rDRY RUN - Would push image: {tag}\n")
+        print(f"DRY RUN - Would push image: {tag}")
         elapsed_time = 0
     else:
         try:
@@ -72,10 +96,9 @@ def push_image(client, tag, log_file, dry_run=True):
             except docker.errors.ImageNotFound:
                 result = f"Image not found locally: {tag}"
                 elapsed_time = time.time() - start_time
-                log_entry = f"\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds\n"
-                sys.stdout.write(log_entry)
-                sys.stdout.flush()
-                log_file.write(log_entry)
+                log_entry = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds"
+                print(f"\n{log_entry}")
+                log_file.write(f"{log_entry}\n")
                 return
 
             # Try to inspect the image to get more details
@@ -91,10 +114,15 @@ def push_image(client, tag, log_file, dry_run=True):
             last_update = start_time
             result = "Started push"
             error_details = []
+            needs_auth = False
+            last_status = ""
 
             for chunk in response:
                 if 'error' in chunk:
+                    error = chunk['error'].lower()
                     error_details.append(chunk['error'])
+                    if 'authentication required' in error or 'not authenticated' in error:
+                        needs_auth = True
                     continue
 
                 if 'status' in chunk:
@@ -119,11 +147,27 @@ def push_image(client, tag, log_file, dry_run=True):
                     elapsed_time = current_time - start_time
                     if current_time - last_update >= 1:
                         progress = f"[{pushed_layers}/{total_layers}]" if total_layers > 0 else ""
-                        sys.stdout.write(f"\rElapsed time: {elapsed_time:.2f} seconds, Status: {current_status} {progress}")
-                        sys.stdout.flush()
+                        status_line = f"\rElapsed time: {elapsed_time:.2f} seconds, Status: {current_status} {progress}"
+                        # Clear the previous line if it was longer
+                        if len(last_status) > len(status_line):
+                            print('\r' + ' ' * len(last_status), end='\r')
+                        print(status_line, end='', flush=True)
+                        last_status = status_line
                         last_update = current_time
 
-            if error_details:
+            # Clear the progress line
+            if last_status:
+                print('\r' + ' ' * len(last_status), end='\r')
+
+            if needs_auth and token:
+                print("\nAuthentication required, attempting to login...")
+                registry = tag.split('/')[0]
+                if docker_login(registry, token):
+                    print("Login successful, retrying push...")
+                    return push_image(client, tag, log_file, dry_run, token)
+                else:
+                    result = "Push failed: Authentication failed"
+            elif error_details:
                 result = f"Push failed: {'; '.join(error_details)}"
             elif pushed_layers > 0:
                 result = f"Pushed successfully ({pushed_layers} layers)"
@@ -132,6 +176,12 @@ def push_image(client, tag, log_file, dry_run=True):
 
         except docker.errors.APIError as e:
             if "denied" in str(e).lower():
+                if token:
+                    print("\nAccess denied, attempting to login...")
+                    registry = tag.split('/')[0]
+                    if docker_login(registry, token):
+                        print("Login successful, retrying push...")
+                        return push_image(client, tag, log_file, dry_run, token)
                 result = f"Push failed: Access denied - check authentication credentials"
             else:
                 result = f"Push failed: {str(e)}"
@@ -141,10 +191,9 @@ def push_image(client, tag, log_file, dry_run=True):
         end_time = time.time()
         elapsed_time = end_time - start_time
     
-    log_entry = f"\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds\n"
-    sys.stdout.write(f"\n{log_entry}")
-    sys.stdout.flush()
-    log_file.write(log_entry)
+    log_entry = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds"
+    print(f"\n{log_entry}")
+    log_file.write(f"{log_entry}\n")
 
 def get_image_tags(repository, packages, versions):
     """Generate full image tags for given packages and versions."""
@@ -154,7 +203,7 @@ def get_image_tags(repository, packages, versions):
             tags.append(f"{repository}/{package}:{version}")
     return tags
 
-def process_images(client, repository, packages, versions, log_file_path, dry_run=True):
+def process_images(client, repository, packages, versions, log_file_path, dry_run=True, token=None):
     """
     Process and push all matching Docker images.
     
@@ -165,6 +214,7 @@ def process_images(client, repository, packages, versions, log_file_path, dry_ru
         versions: List of versions
         log_file_path: Path to the log file
         dry_run: If True, only simulate the push operation
+        token: GitLab token for authentication
     """
     images = client.images.list()
     matching_images = []
@@ -175,7 +225,7 @@ def process_images(client, repository, packages, versions, log_file_path, dry_ru
             for tag in image.tags:
                 if any(target_tag in tag for target_tag in target_tags):
                     matching_images.append(tag)
-                    push_image(client, tag, log_file, dry_run)
+                    push_image(client, tag, log_file, dry_run, token)
     
     if not matching_images:
         print(f"No images found matching repository prefix: {repository}/")
@@ -231,9 +281,20 @@ def main():
         
         # Load environment variables
         load_dotenv()
+        gitlab_url = os.getenv('GITLAB_URL')
+        gitlab_token = os.getenv('GITLAB_TOKEN')
         repository = args.repository or os.getenv('NEW_REPO')
+
+        if not repository and gitlab_url:
+            # Try to construct repository from GITLAB_URL if NEW_REPO is not set
+            repository = f"{gitlab_url}/advanced-search/content-services/idol"
+
         if not repository:
-            raise ValueError("Repository not specified. Either set NEW_REPO in .env file or use --repository")
+            raise ValueError("Repository not specified. Either set NEW_REPO in .env file, use --repository, or set GITLAB_URL")
+
+        if not gitlab_token:
+            print("Warning: GITLAB_TOKEN not set in .env file")
+            print("You may need to login manually if authentication is required")
 
         # Default packages and versions if files not provided
         default_packages = [
@@ -268,7 +329,9 @@ def main():
         
         # Print configuration
         print("Configuration:")
+        print(f"GitLab URL: {gitlab_url}")
         print(f"Repository: {repository}")
+        print(f"Token: {'set' if gitlab_token else 'not set'}")
         print(f"Packages ({len(packages)}):")
         for pkg in packages:
             print(f"  - {pkg}")
@@ -280,7 +343,7 @@ def main():
         print("-" * 50)
         
         # Process and push images
-        process_images(client, repository, packages, versions, log_file_path, not args.no_dry_run)
+        process_images(client, repository, packages, versions, log_file_path, not args.no_dry_run, gitlab_token)
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
