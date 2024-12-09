@@ -4,6 +4,7 @@ import os
 import logging
 from datetime import datetime
 import pathlib
+import urllib.parse
 
 # Create log directory if it doesn't exist
 pathlib.Path('./logs').mkdir(exist_ok=True)
@@ -74,7 +75,54 @@ def list_repositories(api_endpoint_repositories):
     else:
         logger.error(f"Failed to retrieve registries: {response.status_code}, {response.text}")
 
+def explore_container_registry(repository_path):
+    """
+    Explore packages and tags in a container registry repository
+    Args:
+        repository_path: Full path to the repository (e.g., 'group/project/image')
+    """
+    encoded_repo_path = urllib.parse.quote(repository_path, safe='')
+    api_endpoint_registry = f"{gitlab_url}/api/v4/projects/{encoded_repo_path}/registry/repositories"
+    
+    try:
+        # Get repositories in the registry
+        response = requests.get(api_endpoint_registry, headers=headers, timeout=timeout_seconds)
+        
+        if response.status_code == 200:
+            repositories = response.json()
+            package_info = []
+            max_name_length = 0
+            
+            for repo in repositories:
+                # Get tags for each repository
+                tags_url = f"{gitlab_url}/api/v4/projects/{encoded_repo_path}/registry/repositories/{repo['id']}/tags"
+                tags_response = requests.get(tags_url, headers=headers, timeout=timeout_seconds)
+                
+                if tags_response.status_code == 200:
+                    tags = tags_response.json()
+                    tag_names = sorted([tag['name'] for tag in tags], reverse=True)
+                    package_name = repo['path'].split('/')[-1]
+                    max_name_length = max(max_name_length, len(package_name))
+                    package_info.append((package_name, tag_names))
+                else:
+                    logger.error(f"Failed to retrieve tags: {tags_response.status_code}, {tags_response.text}")
+            
+            # Print aligned output
+            format_string = "{:<" + str(max_name_length) + "s}: {}"
+            for package_name, tags in sorted(package_info):
+                print(format_string.format(package_name, tags))
+        else:
+            logger.error(f"Failed to access registry: {response.status_code}, {response.text}")
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"Connection timed out after {timeout_seconds} seconds")
+    except requests.exceptions.ConnectionError:
+        logger.error("Failed to connect to the GitLab server")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {str(e)}")
+
 if __name__ == "__main__":
     logger.info("Starting GitLab Explorer")
-    build_group_list()
+    repository_path = "advanced-search/content-services/idol"
+    explore_container_registry(repository_path)
     logger.info("GitLab Explorer completed")
