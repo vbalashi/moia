@@ -67,9 +67,10 @@ def push_image(client, tag, log_file, dry_run=True):
         try:
             # First check if the image exists locally
             try:
-                client.images.get(tag)
+                image = client.images.get(tag)
+                print(f"Found local image: {tag} (ID: {image.short_id})")
             except docker.errors.ImageNotFound:
-                result = "Image not found locally"
+                result = f"Image not found locally: {tag}"
                 elapsed_time = time.time() - start_time
                 log_entry = f"\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds\n"
                 sys.stdout.write(log_entry)
@@ -77,45 +78,71 @@ def push_image(client, tag, log_file, dry_run=True):
                 log_file.write(log_entry)
                 return
 
+            # Try to inspect the image to get more details
+            try:
+                image_details = client.api.inspect_image(tag)
+                print(f"Image size: {image_details['Size'] / 1024 / 1024:.2f} MB")
+            except Exception as e:
+                print(f"Warning: Could not get image details: {e}")
+
             response = client.images.push(tag, stream=True, decode=True)
             total_layers = 0
             pushed_layers = 0
             last_update = start_time
             result = "Started push"
+            error_details = []
 
             for chunk in response:
+                if 'error' in chunk:
+                    error_details.append(chunk['error'])
+                    continue
+
                 if 'status' in chunk:
                     status = chunk['status']
-                    if status == 'Pushing':
-                        total_layers += 1
-                    elif status == 'Layer already exists':
-                        pushed_layers += 1
-                    elif status == 'Pushed':
-                        pushed_layers += 1
+                    if 'id' in chunk:
+                        layer_id = chunk['id']
+                        if status == 'Pushing':
+                            total_layers += 1
+                            current_status = f"Pushing layer {layer_id}"
+                        elif status == 'Layer already exists':
+                            pushed_layers += 1
+                            current_status = f"Layer exists {layer_id}"
+                        elif status == 'Pushed':
+                            pushed_layers += 1
+                            current_status = f"Pushed layer {layer_id}"
+                        else:
+                            current_status = f"{status} {layer_id}"
+                    else:
+                        current_status = status
                     
-                current_time = time.time()
-                elapsed_time = current_time - start_time
-                if current_time - last_update >= 1:
-                    sys.stdout.write(f"\rElapsed time: {elapsed_time:.2f} seconds, Status: {chunk.get('status', 'N/A')}")
-                    sys.stdout.flush()
-                    last_update = current_time
+                    current_time = time.time()
+                    elapsed_time = current_time - start_time
+                    if current_time - last_update >= 1:
+                        progress = f"[{pushed_layers}/{total_layers}]" if total_layers > 0 else ""
+                        sys.stdout.write(f"\rElapsed time: {elapsed_time:.2f} seconds, Status: {current_status} {progress}")
+                        sys.stdout.flush()
+                        last_update = current_time
 
-            if pushed_layers > 0:
-                result = "Pushed successfully"
+            if error_details:
+                result = f"Push failed: {'; '.join(error_details)}"
+            elif pushed_layers > 0:
+                result = f"Pushed successfully ({pushed_layers} layers)"
             else:
-                result = "Push failed - no layers were pushed"
+                result = "Push failed - no layers were pushed (check authentication and permissions)"
 
         except docker.errors.APIError as e:
             if "denied" in str(e).lower():
-                result = f"Push failed: Access denied"
+                result = f"Push failed: Access denied - check authentication credentials"
             else:
-                result = f"Push failed: {e.explanation}"
+                result = f"Push failed: {str(e)}"
+        except Exception as e:
+            result = f"Unexpected error: {str(e)}"
         
         end_time = time.time()
         elapsed_time = end_time - start_time
     
     log_entry = f"\n{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, {tag}, {result}, Elapsed time: {elapsed_time:.2f} seconds\n"
-    sys.stdout.write(log_entry)
+    sys.stdout.write(f"\n{log_entry}")
     sys.stdout.flush()
     log_file.write(log_entry)
 
