@@ -1,0 +1,89 @@
+ARG BASE_IMAGE_NAME=rhel-base
+ARG BASE_IMAGE_TAG=8.10-1132.1732635159
+FROM ${BASE_IMAGE_NAME}:${BASE_IMAGE_TAG}
+
+ARG MAINTAINER="Apache NiFi <dev@nifi.apache.org>"
+LABEL maintainer="${MAINTAINER}"
+LABEL site="https://nifi.apache.org"
+
+USER 0
+
+ARG NIFI_VERSION
+ARG NIFI_BINARY_URL
+ARG NIFI_COMPONENTS_BASE_DIR
+
+ENV NIFI_BASE_DIR=/opt/nifi
+ENV NIFI_HOME=${NIFI_BASE_DIR}/nifi-current
+ENV NIFI_TOOLKIT_HOME=${NIFI_BASE_DIR}/nifi-toolkit-current
+ENV NIFI_PID_DIR=${NIFI_HOME}/run
+ENV NIFI_LOG_DIR=/var/logs
+
+ADD ${NIFI_COMPONENTS_BASE_DIR}/sh/ ${NIFI_BASE_DIR}/scripts/
+ADD ${NIFI_COMPONENTS_BASE_DIR}/libs/ ${NIFI_BASE_DIR}/libs/
+RUN chmod -R +x ${NIFI_BASE_DIR}/scripts/*.sh \
+    && yum update -y \
+    && yum upgrade curl -y \
+    && yum install -y unzip 
+
+# Setup NiFi user and create necessary directories
+RUN mkdir -p ${NIFI_BASE_DIR} \
+    && yum update -y \
+    && yum install -y jq xmlstarlet procps-ng libpq binutils \
+    && yum install -y python3 \
+    && yum install -y unixODBC \
+    && curl -fSL ${POSTGRESQL_BASE_URL}/${POSTGRESQL_LIBS} -o ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
+    && curl -fSL ${POSTGRESQL_BASE_URL}/${POSTGRESQL_ODBC} -o ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC} \
+    && rpm -i ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
+    && rpm -i ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC} \
+    && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
+    && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC} 
+
+# Download, validate, and expand Apache NiFi binary.
+RUN curl -fSL ${NIFI_BINARY_URL} -o ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip \
+    && unzip ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip -d ${NIFI_BASE_DIR} \
+    && rm ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip \
+    && mv ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION} ${NIFI_HOME} \
+    && mkdir -p -m 775 ${NIFI_HOME}/conf \
+    && mkdir -p -m 775 ${NIFI_HOME}/database_repository \
+    && mkdir -p -m 775 ${NIFI_HOME}/flowfile_repository \
+    && mkdir -p -m 775 ${NIFI_HOME}/content_repository \
+    && mkdir -p -m 775 ${NIFI_HOME}/provenance_repository \
+    && mkdir -p -m 775 ${NIFI_HOME}/python_extensions \
+    && mkdir -p -m 775 ${NIFI_HOME}/nar_extensions \
+    && mkdir -p -m 775 opt/sample/data \
+    && mkdir -p -m 775 ${NIFI_HOME}/templates \
+    && mkdir -p -m 775 ${NIFI_HOME}/state \
+    && mkdir -p -m 775 ${NIFI_LOG_DIR} \
+    && ln -s ${NIFI_HOME} ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}
+
+COPY ${NIFI_COMPONENTS_BASE_DIR}/scripts ${NIFI_HOME}/python_extensions/
+COPY ${NIFI_COMPONENTS_BASE_DIR}/extensions ${NIFI_HOME}/nar_extensions/
+COPY ${NIFI_COMPONENTS_BASE_DIR}/odbc /etc/
+COPY ${NIFI_COMPONENTS_BASE_DIR}/templates ${NIFI_HOME}/templates/
+COPY ${NIFI_COMPONENTS_BASE_DIR}/conf ${NIFI_HOME}/conf/
+
+VOLUME ${NIFI_LOG_DIR} \
+       ${NIFI_HOME}/conf \
+       ${NIFI_HOME}/database_repository \
+       ${NIFI_HOME}/flowfile_repository \
+       ${NIFI_HOME}/content_repository \
+       ${NIFI_HOME}/provenance_repository \
+       ${NIFI_HOME}/python_extensions \
+       ${NIFI_HOME}/nar_extensions \
+       ${NIFI_HOME}/templates \
+       ${NIFI_HOME}/state 
+
+# Clear nifi-env.sh in favour of configuring all environment variables in the Dockerfile
+RUN echo "#!/bin/sh\n" > $NIFI_HOME/bin/nifi-env.sh
+
+RUN chgrp -R 0 ${NIFI_BASE_DIR} \
+    && chmod -R g=u ${NIFI_BASE_DIR}
+
+# Web HTTP(s) & Socket Site-to-Site Ports
+EXPOSE 8443/tcp 10000/tcp 8000/tcp
+
+WORKDIR ${NIFI_HOME}
+
+USER 1001
+
+ENTRYPOINT ["../scripts/start.sh"]
