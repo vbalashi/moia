@@ -18,9 +18,9 @@ def get_log_file_path():
     return f"./logs/nifi_retag_log_{timestamp}.log"
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='Retag and push Docker images to target registry')
+    parser = argparse.ArgumentParser(description='Retag Docker images with target registry tags')
     parser.add_argument('--execute', action='store_true',
-                       help='Execute the retagging and pushing (default is dry-run mode)')
+                       help='Execute the retagging (default is dry-run mode)')
     parser.add_argument('--remove-old', action='store_true',
                        help='Remove old image tags after retagging')
     return parser.parse_args()
@@ -35,21 +35,13 @@ def get_config():
     load_dotenv()
     
     target_repo = os.getenv('TARGET_REPO')
-    registry_url = os.getenv('REGISTRY_URL')
-    gitlab_token = os.getenv('GITLAB_TOKEN')
     
     # Parse image names and tags
     image_names = parse_list_value(os.getenv('IMAGE_NAMES'), ['nifi'])
     image_tags = parse_list_value(os.getenv('IMAGE_TAGS'), ['*'])
     
-    # Extract registry URL from target repo if not explicitly provided
-    if not registry_url and target_repo:
-        registry_url = target_repo.split('/')[0]
-    
     return {
         'target_repo': target_repo,
-        'registry_url': registry_url,
-        'gitlab_token': gitlab_token,
         'image_names': image_names,
         'image_tags': image_tags
     }
@@ -60,9 +52,7 @@ def print_configuration(config, execute, remove_old):
     print("-" * 50)
     print(f"Mode: {'EXECUTE' if execute else 'DRY RUN'}")
     print(f"Remove old tags: {'Yes' if remove_old else 'No'}")
-    print(f"\nRepositories:")
-    print(f"  Target: {config['target_repo']}")
-    print(f"  Registry: {config['registry_url']}")
+    print(f"\nTarget Repository: {config['target_repo']}")
     print("\nImages to process:")
     print(f"  Names: {', '.join(config['image_names'])}")
     print(f"  Tags: {', '.join(config['image_tags'])}")
@@ -78,23 +68,6 @@ def check_docker_running():
         print("Error: Docker is not running or not accessible.")
         print("Please make sure Docker Desktop is running and try again.")
         print("\nDetailed error:", str(e))
-        sys.exit(1)
-
-def login_to_registry(client, config):
-    """Login to GitLab registry using token."""
-    try:
-        if config['registry_url'] and config['gitlab_token']:
-            print(f"Logging in to registry {config['registry_url']}...")
-            client.login(
-                username='oauth2',
-                password=config['gitlab_token'],
-                registry=config['registry_url']
-            )
-            print("Successfully logged in to registry")
-        else:
-            print("Warning: Registry URL or GitLab token not provided, skipping login")
-    except docker.errors.APIError as e:
-        print(f"Error logging in to registry: {str(e)}")
         sys.exit(1)
 
 def should_process_image(image_name, image_tag, config):
@@ -114,7 +87,7 @@ def should_process_image(image_name, image_tag, config):
     )
     return tag_matches
 
-def retag_and_push_images(target_repo, config, execute=False, remove_old=False):
+def retag_images(target_repo, config, execute=False, remove_old=False):
     client = check_docker_running()
     try:
         images = client.images.list()
@@ -149,12 +122,7 @@ def retag_and_push_images(target_repo, config, execute=False, remove_old=False):
                     try:
                         # Tag the image
                         image.tag(new_image)
-                        
-                        # Push the image
-                        print(f"Pushing {new_image}...")
-                        for line in client.images.push(new_image, stream=True, decode=True):
-                            if 'status' in line:
-                                print(f"Push status: {line['status']}")
+                        print(f"Successfully retagged to: {new_image}")
                         
                         if remove_old:
                             print(f"Removing old tag: {tag}")
@@ -181,11 +149,7 @@ def main():
     # Print configuration summary
     print_configuration(config, args.execute, args.remove_old)
     
-    # Setup Docker client and login
-    client = check_docker_running()
-    login_to_registry(client, config)
-    
-    retag_and_push_images(
+    retag_images(
         config['target_repo'],
         config,
         execute=args.execute,
