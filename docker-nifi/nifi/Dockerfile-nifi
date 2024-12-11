@@ -11,6 +11,7 @@ USER 0
 ARG NIFI_VERSION
 ARG NIFI_BINARY_URL
 ARG NIFI_COMPONENTS_BASE_DIR
+ARG NAR_EXTENSIONS_DIR
 
 ENV NIFI_BASE_DIR=/opt/nifi
 ENV NIFI_HOME=${NIFI_BASE_DIR}/nifi-current
@@ -31,24 +32,35 @@ ARG POSTGRESQL_LIBS=postgresql16-libs-16.0-1PGDG.rhel8.x86_64.rpm
 ARG POSTGRESQL_ODBC=postgresql16-odbc-16.00.0000-1PGDG.rhel8.x86_64.rpm
 
 # Setup NiFi user and create necessary directories
-RUN mkdir -p ${NIFI_BASE_DIR} \
+RUN --mount=type=cache,target=/var/cache/downloads \
+    mkdir -p ${NIFI_BASE_DIR} \
     && yum update -y \
     && yum install -y jq xmlstarlet procps-ng libpq binutils \
     && yum install -y python3 \
     && yum install -y unixODBC \
-    && curl -fSL ${POSTGRESQL_BASE_URL}/${POSTGRESQL_LIBS} -o ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
-    && curl -fSL ${POSTGRESQL_BASE_URL}/${POSTGRESQL_ODBC} -o ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC} \
+    && for PKG in ${POSTGRESQL_LIBS} ${POSTGRESQL_ODBC}; do \
+        if [ ! -f "/var/cache/downloads/${PKG}" ]; then \
+            curl -fSL ${POSTGRESQL_BASE_URL}/${PKG} -o "/var/cache/downloads/${PKG}"; \
+        fi; \
+        cp "/var/cache/downloads/${PKG}" ${NIFI_BASE_DIR}/; \
+    done \
     && rpm -i ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
     && rpm -i ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC} \
     && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
-    && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC} 
+    && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC}
 
-# Download, validate, and expand Apache NiFi binary.
-RUN curl -fSL ${NIFI_BINARY_URL} -o ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip \
-    && unzip ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip -d ${NIFI_BASE_DIR} \
-    && rm ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zip \
-    && mv ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION} ${NIFI_HOME} \
-    && mkdir -p -m 775 ${NIFI_HOME}/conf \
+# Download, validate, and expand Apache NiFi binary with caching
+RUN --mount=type=cache,target=/var/cache/downloads \
+    NIFI_BINARY_FILENAME="nifi-${NIFI_VERSION}-bin.zip" && \
+    CACHE_FILE="/var/cache/downloads/${NIFI_BINARY_FILENAME}" && \
+    if [ ! -f "${CACHE_FILE}" ]; then \
+        curl -fSL ${NIFI_BINARY_URL} -o "${CACHE_FILE}"; \
+    fi && \
+    cp "${CACHE_FILE}" ${NIFI_BASE_DIR}/ && \
+    unzip ${NIFI_BASE_DIR}/${NIFI_BINARY_FILENAME} -d ${NIFI_BASE_DIR} && \
+    rm ${NIFI_BASE_DIR}/${NIFI_BINARY_FILENAME} && \
+    mv ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION} ${NIFI_HOME} && \
+    mkdir -p -m 775 ${NIFI_HOME}/conf \
     && mkdir -p -m 775 ${NIFI_HOME}/database_repository \
     && mkdir -p -m 775 ${NIFI_HOME}/flowfile_repository \
     && mkdir -p -m 775 ${NIFI_HOME}/content_repository \
@@ -62,7 +74,7 @@ RUN curl -fSL ${NIFI_BINARY_URL} -o ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}-bin.zi
     && ln -s ${NIFI_HOME} ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}
 
 COPY ${NIFI_COMPONENTS_BASE_DIR}/scripts ${NIFI_HOME}/python_extensions/
-COPY ${NIFI_COMPONENTS_BASE_DIR}/extensions ${NIFI_HOME}/nar_extensions/
+COPY ${NIFI_COMPONENTS_BASE_DIR}/${NAR_EXTENSIONS_DIR} ${NIFI_HOME}/nar_extensions/
 COPY ${NIFI_COMPONENTS_BASE_DIR}/odbc /etc/
 COPY ${NIFI_COMPONENTS_BASE_DIR}/templates ${NIFI_HOME}/templates/
 COPY ${NIFI_COMPONENTS_BASE_DIR}/conf ${NIFI_HOME}/conf/
