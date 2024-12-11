@@ -2,3 +2,5 @@
 !.gitignore
 logs/
 .env
+docker-nifi/nifi/nifi-components/
+docker-nifi/nifi/tmp/

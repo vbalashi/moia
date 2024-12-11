@@ -20,10 +20,15 @@ ENV NIFI_LOG_DIR=/var/logs
 
 ADD ${NIFI_COMPONENTS_BASE_DIR}/sh/ ${NIFI_BASE_DIR}/scripts/
 ADD ${NIFI_COMPONENTS_BASE_DIR}/libs/ ${NIFI_BASE_DIR}/libs/
+
 RUN chmod -R +x ${NIFI_BASE_DIR}/scripts/*.sh \
     && yum update -y \
     && yum upgrade curl -y \
     && yum install -y unzip 
+
+ARG POSTGRESQL_BASE_URL=https://download.postgresql.org/pub/repos/yum/16/redhat/rhel-8-x86_64
+ARG POSTGRESQL_LIBS=postgresql16-libs-16.0-1PGDG.rhel8.x86_64.rpm 
+ARG POSTGRESQL_ODBC=postgresql16-odbc-16.00.0000-1PGDG.rhel8.x86_64.rpm
 
 # Setup NiFi user and create necessary directories
 RUN mkdir -p ${NIFI_BASE_DIR} \
