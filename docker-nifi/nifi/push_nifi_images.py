@@ -24,6 +24,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Push Docker images to target registry with progress tracking')
     parser.add_argument('--execute', action='store_true',
                        help='Execute the pushing (default is dry-run mode)')
+    parser.add_argument('--tags', type=str,
+                       help='Comma-separated list of tags to push (overrides IMAGE_TAGS env variable)')
     return parser.parse_args()
 
 def parse_list_value(value, default):
@@ -41,7 +43,13 @@ def get_config():
     
     # Parse image names and tags
     image_names = parse_list_value(os.getenv('IMAGE_NAMES'), ['nifi'])
-    image_tags = parse_list_value(os.getenv('IMAGE_TAGS'), ['*'])
+    
+    args = parse_arguments()
+    # Use CLI tags if provided, otherwise fall back to env variable
+    if args.tags is not None:
+        image_tags = parse_list_value(args.tags, ['*'])
+    else:
+        image_tags = parse_list_value(os.getenv('IMAGE_TAGS'), ['*'])
     
     # Extract registry URL from target repo if not explicitly provided
     if not registry_url and target_repo:
