@@ -128,6 +128,24 @@ def format_size(size_bytes):
         size_bytes /= 1024.0
     return f"{size_bytes:.2f} TB"
 
+def check_remote_image_exists(client, image_tag, config):
+    """Check if image exists in remote repository with same digest."""
+    try:
+        # Pull remote image digest
+        remote_image = client.images.get_registry_data(image_tag)
+        remote_digest = remote_image.id
+        
+        # Get local image digest
+        local_image = client.images.get(image_tag)
+        local_digest = local_image.id
+        
+        return remote_digest == local_digest
+    except docker.errors.NotFound:
+        return False
+    except docker.errors.APIError:
+        print(f"Warning: Could not check remote image {image_tag}. Will proceed with push.")
+        return False
+
 def push_images(target_repo, config, execute=False):
     client = check_docker_running()
     try:
@@ -151,6 +169,11 @@ def push_images(target_repo, config, execute=False):
                 
                 # Check if this is a target repo image that should be pushed
                 if tag.startswith(target_repo) and should_process_image(image_name, tag_name, config):
+                    # Add check for existing remote image
+                    if check_remote_image_exists(client, tag, config):
+                        print(f"Skipping {tag} - identical image already exists in remote repository")
+                        continue
+                        
                     found_images = True
                     size = get_image_size(image)
                     images_to_push.append({
