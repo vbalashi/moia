@@ -1,3 +1,29 @@
+"""
+Script to pull Docker images from MicroFocus IDOL Docker Hub repository.
+
+This script authenticates with Docker Hub and pulls specified images from
+the microfocusidolserver namespace. It supports both local and remote Docker
+contexts and includes various authentication methods for different environments.
+
+Environment Variables Required (.env):
+    DOCKER_HUB_USERNAME: Docker Hub username for authentication
+    DOCKER_HUB_PASSWORD: Docker Hub password for authentication
+
+Features:
+    - Supports both local and remote Docker contexts
+    - Multiple authentication methods for different environments
+    - Dry-run mode available
+    - Interrupt handling for graceful stops
+    - Detailed logging with timestamps
+
+Example Usage:
+    # Pull images in dry-run mode:
+    python 01_pull_from_microfocusidolserver.py
+    
+    # Actually pull images:
+    python 01_pull_from_microfocusidolserver.py --execute
+"""
+
 import os
 import argparse
 import requests

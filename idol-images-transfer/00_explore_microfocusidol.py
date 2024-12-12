@@ -1,3 +1,25 @@
+"""
+Script to explore MicroFocus IDOL Docker Hub packages and their tags.
+
+This script connects to Docker Hub and explores the microfocusidolserver namespace,
+listing all available packages and their tags. It can either list all packages
+or show tags for specific packages.
+
+Environment Variables Required (.env):
+    DOCKER_HUB_USERNAME: Docker Hub username for authentication
+    DOCKER_HUB_PASSWORD: Docker Hub password for authentication
+
+Example Usage:
+    # List all packages:
+    python 00_explore_microfocusidol.py
+    
+    # Show tags for specific packages:
+    python 00_explore_microfocusidol.py --packages content category
+    
+    # Show tags for packages listed in a file:
+    python 00_explore_microfocusidol.py --packages-file packages.txt
+"""
+
 import requests
 import json
 import os

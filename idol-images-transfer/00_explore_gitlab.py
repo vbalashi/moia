@@ -1,3 +1,22 @@
+"""
+Script to explore GitLab container registry and list available packages and their tags.
+
+This script connects to a GitLab instance, explores its container registry,
+and lists available packages and their tags. It's particularly focused on
+exploring the content-services/idol repository.
+
+Environment Variables Required (.env):
+    GITLAB_URL: Base URL of the GitLab instance (e.g., https://gitlab.example.com)
+    GITLAB_TOKEN: Personal access token for GitLab authentication
+
+Example Usage:
+    python 00_explore_gitlab.py
+
+Output:
+    - Lists all available packages and their tags
+    - Logs are saved to ./logs directory with timestamp
+"""
+
 import requests
 from dotenv import load_dotenv
 import os

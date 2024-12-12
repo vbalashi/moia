@@ -1,3 +1,41 @@
+"""
+Script to push retagged Docker images to DocDirect registry.
+
+This script pushes Docker images that have been retagged to the target registry.
+It includes authentication handling, dry-run mode, and supports pushing specific
+packages or all available packages.
+
+Environment Variables Required (.env):
+    # If pushing to Docker Hub:
+    DOCKER_HUB_USERNAME: Docker Hub username (reuse from previous scripts)
+    DOCKER_HUB_PASSWORD: Docker Hub password (reuse from previous scripts)
+    
+    # If pushing to a different registry:
+    DOCKER_REGISTRY: Target Docker registry URL (only if not Docker Hub)
+    DOCKER_USERNAME: Registry username (if different from Docker Hub)
+    DOCKER_PASSWORD: Registry password (if different from Docker Hub)
+    
+    # Common variables:
+    NEW_REPO: Target repository path (same as used in retagging)
+
+Features:
+    - Dry-run mode to preview pushes
+    - Registry authentication handling
+    - Support for specific package selection
+    - Detailed logging with timestamps
+    - Docker daemon health check
+
+Example Usage:
+    # Preview pushing (dry-run):
+    python 03_push_images_to_docdirect.py
+    
+    # Execute pushing all images:
+    python 03_push_images_to_docdirect.py --execute
+    
+    # Push specific packages:
+    python 03_push_images_to_docdirect.py --execute --packages content category
+"""
+
 import docker
 import datetime
 import time
@@ -26,6 +64,60 @@ def check_docker_running():
         print("3. You have permission to access Docker")
         print("\nDetailed error:", str(e))
         sys.exit(1)
+
+def get_registry_credentials():
+    """
+    Get appropriate credentials based on registry type.
+    Returns a tuple of (registry_url, username, password).
+    """
+    load_dotenv()
+    
+    # Get registry URL (defaults to Docker Hub if not specified)
+    registry = os.getenv('DOCKER_REGISTRY', 'docker.io')
+    
+    if registry == 'docker.io':
+        # Use Docker Hub credentials
+        username = os.getenv('DOCKER_HUB_USERNAME')
+        password = os.getenv('DOCKER_HUB_PASSWORD')
+    else:
+        # Use custom registry credentials
+        username = os.getenv('DOCKER_USERNAME')
+        password = os.getenv('DOCKER_PASSWORD')
+    
+    return registry, username, password
+
+def docker_login(registry=None, username=None, password=None):
+    """
+    Attempt to login to Docker registry using provided credentials.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        # Get credentials if not provided
+        if not all([registry, username, password]):
+            registry, username, password = get_registry_credentials()
+        
+        client = docker.from_env()
+        auth_config = {
+            'username': username,
+            'password': password
+        }
+        
+        # For Docker Hub, don't specify registry in login
+        if registry == 'docker.io':
+            registry = None
+            
+        result = client.login(
+            registry=registry,
+            **auth_config
+        )
+        
+        if result and 'Status' in result and 'succeeded' in result['Status'].lower():
+            print(f"Successfully logged in to {registry or 'Docker Hub'}")
+            return True
+        return False
+    except Exception as e:
+        print(f"Login failed: {str(e)}")
+        return False
 
 def initialize_docker_client():
     """Initialize and return the Docker client."""

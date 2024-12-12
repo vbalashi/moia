@@ -1,3 +1,32 @@
+"""
+Script to retag Docker images from one repository to another.
+
+This script retags Docker images from a source repository to a target repository.
+It supports dry-run mode and can optionally remove old tags after retagging.
+The script is designed to work with local Docker images that have already been
+pulled from the source repository.
+
+Environment Variables Required (.env):
+    OLD_REPO: Source repository path (e.g., microfocusidolserver)
+    NEW_REPO: Target repository path (e.g., your-registry/idolserver)
+
+Features:
+    - Dry-run mode to preview changes
+    - Option to remove old tags after retagging
+    - Detailed logging with timestamps
+    - Docker daemon health check
+
+Example Usage:
+    # Preview retagging (dry-run):
+    python 02_retag_idolserver_images.py
+    
+    # Execute retagging:
+    python 02_retag_idolserver_images.py --execute
+    
+    # Execute retagging and remove old tags:
+    python 02_retag_idolserver_images.py --execute --remove-old
+"""
+
 import docker
 import os
 import argparse
