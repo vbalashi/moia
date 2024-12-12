@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Script: 00_check_rhel_version.sh
+# Description: Checks for newer versions of RHEL UBI base image by comparing
+#              the current version in Dockerfile with the latest available
+#              version from the Red Hat registry.
+# 
+# Output: 
+#   - Prints version comparison results to stdout
+#   - Creates a log file in logs/ directory with timestamp
+#   - Returns 0 if using latest version, 1 if update available
+
 # Create logs directory if it doesn't exist
 mkdir -p logs
 
