@@ -1,5 +1,25 @@
 #!/bin/bash
 
+# NiFi Docker Image Build Script
+#
+# This script builds NiFi Docker images for different versions (1.28.1 or 2.0.0).
+# It supports building with or without NAR files and custom NAR extensions directory.
+#
+# Prerequisites:
+#   - Docker with Buildx plugin installed
+#   - Base image (rhel-base) must be available locally
+#   - Local components directory structure:
+#     ./nifi-components/
+#       ├── sh/
+#       ├── conf/
+#       ├── extensions/
+#       └── libs/
+#
+# Usage Examples:
+#   ./01_build_nifi.sh v1              # Build NiFi 1.28.1 with default NAR files
+#   ./01_build_nifi.sh v2 --no-nar     # Build NiFi 2.0.0 without NAR files
+#   ./01_build_nifi.sh v1 --nar-dir=custom  # Build with custom NAR directory
+
 # Default values and configurations
 LOCAL_COMPONENTS_DIR="./nifi-components"
 NAR_EXTENSIONS_DIR="extensions-24.4"  # Default NAR extensions directory

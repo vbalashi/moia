@@ -1,5 +1,24 @@
 #!/usr/bin/env python3
 
+'''
+NiFi Image Retag Script
+
+This script retags local NiFi Docker images with target registry tags.
+It provides both dry-run and execute modes, with an option to remove old tags.
+
+Environment Variables Required:
+    TARGET_REPO:  Target repository URL (e.g., 'registry.example.com/org')
+    IMAGE_NAMES:  Comma-separated list of image names to retag (default: 'nifi')
+    IMAGE_TAGS:   Comma-separated list of tags to retag (default: '*')
+
+Example Usage:
+    # Dry run mode
+    python 02_retag_nifi_images.py
+
+    # Execute mode and remove old tags
+    python 02_retag_nifi_images.py --execute --remove-old
+'''
+
 import docker
 import os
 import argparse
