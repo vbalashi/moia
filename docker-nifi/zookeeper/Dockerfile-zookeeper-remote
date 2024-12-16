@@ -1,0 +1,70 @@
+ARG BASE_IMAGE_NAME=rhel-base-jdk11
+ARG BASE_IMAGE_TAG=8.10-1132.1732635159
+FROM ${BASE_IMAGE_NAME}:${BASE_IMAGE_TAG}
+
+ARG MAINTAINER="Apache Org"
+LABEL maintainer="${MAINTAINER}"
+LABEL site="https://downloads.apache.org"
+
+USER 0
+
+ARG ZOOKEEPER_VERSION=3.8.4
+ARG BASE_URL=https://dlcdn.apache.org/zookeeper
+
+ENV ZOOKEEPER_BASE_DIR=/opt/zookeeper
+
+ENV ZOOKEEPER_VERSION=3.8.4 \
+    ZOO_SERVERS=3 \
+    ZOOKEEPER_REMOTE_SERVICE_PORT_CLIENT=2181 \
+    ZOOKEEPER_REMOTE_SERVICE_PORT_FOLLOWERS=2888 \
+    ZOOKEEPER_REMOTE_SERVICE_PORT_ELECTION=3888 \
+    ZOO_CONF_DIR=${ZOOKEEPER_BASE_DIR}/conf \
+    ZOO_DATA_DIR=${ZOOKEEPER_BASE_DIR}/data \
+    ZOO_DATA_LOG_DIR=${ZOOKEEPER_BASE_DIR}/datalog \
+    ZOO_LOG_DIR=${ZOOKEEPER_BASE_DIR}/logs \
+    ZOO_TICK_TIME=2000 \
+    ZOO_INIT_LIMIT=5 \
+    ZOO_SYNC_LIMIT=2 \
+    ZOO_AUTOPURGE_PURGEINTERVAL=0 \
+    ZOO_AUTOPURGE_SNAPRETAINCOUNT=3 \
+    ZOO_MAX_CLIENT_CNXNS=60 \
+    ZOO_STANDALONE_ENABLED=false \
+    ZOO_ADMINSERVER_ENABLED=true
+
+# Install required packages
+RUN yum update -y \
+    && yum install -y gettext file wget nmap-ncat
+
+# Create base directory first
+RUN mkdir -p ${ZOOKEEPER_BASE_DIR}
+
+# Download and install Zookeeper
+RUN ZOOKEEPER_BINARY="apache-zookeeper-${ZOOKEEPER_VERSION}-bin.tar.gz" && \
+    wget -c ${BASE_URL}/zookeeper-${ZOOKEEPER_VERSION}/${ZOOKEEPER_BINARY} && \
+    tar -zxf ${ZOOKEEPER_BINARY} -C /opt && \
+    rm ${ZOOKEEPER_BINARY} && \
+    mv /opt/apache-zookeeper-${ZOOKEEPER_VERSION}-bin/* ${ZOOKEEPER_BASE_DIR}/ && \
+    rmdir /opt/apache-zookeeper-${ZOOKEEPER_VERSION}-bin && \
+    cp ${ZOOKEEPER_BASE_DIR}/conf/zoo_sample.cfg ${ZOOKEEPER_BASE_DIR}/conf/zoo.cfg && \
+    mv ${ZOOKEEPER_BASE_DIR}/conf ${ZOOKEEPER_BASE_DIR}/conf.template && \
+    mkdir -p "${ZOO_DATA_LOG_DIR}" "${ZOO_DATA_DIR}" "${ZOO_CONF_DIR}" "${ZOO_LOG_DIR}" && \
+    chmod -R 775 ${ZOOKEEPER_BASE_DIR}
+
+WORKDIR ${ZOOKEEPER_BASE_DIR}
+
+COPY config-and-run.sh ./bin/
+COPY zoo-template-remote.cfg ./conf.template/zoo-template.cfg
+
+VOLUME ["${ZOO_CONF_DIR}", "${ZOO_DATA_DIR}", "${ZOO_DATA_LOG_DIR}", "${ZOO_LOG_DIR}"]
+
+ENV PATH=$PATH:/${ZOOKEEPER_BASE_DIR}/bin \
+    ZOOCFGDIR=$ZOO_CONF_DIR
+
+RUN chgrp -R 0 ${ZOOKEEPER_BASE_DIR} \
+    && chmod -R g=u ${ZOOKEEPER_BASE_DIR}
+
+EXPOSE 2181 2888 3888 8080
+
+USER 1001
+
+CMD ["/opt/zookeeper/bin/config-and-run.sh"] 

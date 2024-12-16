@@ -1,6 +1,27 @@
-.*
+# Ignore all dotfiles and directories in all locations
+**/.*
 !.gitignore
-logs/
-.env
 !.env.example
+
+# Environment files
+**/.env
+!.env.example
+
+# Project-specific ignores
+docker-nifi/.*
 docker-nifi/nifi/nifi-components/
+idol-images-transfer/.*
+
+# Common files to ignore (for files NOT starting with a dot)
+*.log
+*.tmp
+*.temp
+*.swp
+
+# Common directories to ignore
+**/node_modules/
+**/logs/
+**/dist/
+**/build/
+**/__pycache__/
+**/*.pyc
