@@ -22,6 +22,9 @@ Example Usage:
     
     # Actually pull images:
     python 01_pull_from_microfocusidolserver.py --execute
+
+    # Pull a specific package:
+    python 01_pull_from_microfocusidolserver.py --package content
 """
 
 import os
@@ -363,6 +366,7 @@ def main():
     parser.add_argument('--versions-file', help='Path to file containing versions')
     parser.add_argument('--no-dry-run', action='store_true', help='Actually pull images instead of dry run')
     parser.add_argument('--use-existing-auth', action='store_true', help='Use existing Docker authentication instead of logging in')
+    parser.add_argument('--package', help='Specify a single package to pull (overrides --packages-file)')
     args = parser.parse_args()
 
     # Default packages and versions if files not provided
@@ -374,8 +378,13 @@ def main():
     ]
     default_versions = ['24.4']
 
-    # Read packages from file if provided
-    if args.packages_file:
+    # Handle package selection priority:
+    # 1. Single package from --package argument
+    # 2. Packages from file if --packages-file provided
+    # 3. Default packages
+    if args.package:
+        packages = [args.package]
+    elif args.packages_file:
         packages = read_file_lines(args.packages_file)
         if packages is None:
             return

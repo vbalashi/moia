@@ -18,6 +18,9 @@ Example Usage:
     
     # Show tags for packages listed in a file:
     python 00_explore_microfocusidol.py --packages-file packages.txt
+    
+    # Show detailed info for specific package tags (supports wildcards):
+    python 00_explore_microfocusidol.py --packages nifi-full --details "24.4*"
 """
 
 import requests
@@ -25,6 +28,7 @@ import json
 import os
 from dotenv import load_dotenv
 import argparse
+import fnmatch
 
 # Load environment variables from .env file
 load_dotenv()
@@ -151,6 +155,76 @@ def read_packages_from_file(file_path):
         print(f"Error reading file {file_path}: {str(e)}")
         return None
 
+def get_image_details(package, tag_pattern=None):
+    """Get detailed information about Docker images including size and digest."""
+    try:
+        # First, get a JWT token
+        login_response = requests.post(
+            'https://hub.docker.com/v2/users/login/',
+            json={
+                'username': username,
+                'password': password
+            }
+        )
+        
+        if login_response.status_code != 200:
+            return []
+            
+        token = login_response.json().get('token')
+        if not token:
+            return []
+
+        url = f"https://hub.docker.com/v2/repositories/microfocusidolserver/{package}/tags/?page_size=100"
+        response = requests.get(
+            url,
+            headers={
+                'Authorization': f'JWT {token}',
+                'Content-Type': 'application/json'
+            }
+        )
+        
+        if response.status_code != 200:
+            return []
+            
+        data = response.json()
+        details = []
+        
+        def process_tags(tags_data):
+            for tag in tags_data:
+                if tag_pattern and not fnmatch.fnmatch(tag['name'], tag_pattern):
+                    continue
+                    
+                # Get size in MB (rounded to 2 decimal places)
+                size_mb = round(tag.get('full_size', 0) / (1024 * 1024), 2)
+                
+                details.append({
+                    'name': tag['name'],
+                    'size_mb': size_mb,
+                    'digest': tag.get('digest', 'N/A'),
+                    'last_updated': tag.get('last_updated', 'N/A')
+                })
+        
+        # Process initial results
+        process_tags(data.get('results', []))
+        
+        # Handle pagination if there are more results
+        while data.get('next'):
+            response = requests.get(
+                data['next'],
+                headers={'Authorization': f'JWT {token}'}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                process_tags(data.get('results', []))
+            else:
+                break
+                
+        return details
+        
+    except Exception as e:
+        print(f"Error getting image details: {str(e)}")
+        return []
+
 def main():
     parser = argparse.ArgumentParser(
         description='Explore MicroFocus IDOL Docker Hub packages and their tags',
@@ -165,6 +239,10 @@ def main():
     group.add_argument(
         '--packages-file', 
         help='Path to file containing package names (one per line)\nExample: --packages-file packages.txt'
+    )
+    parser.add_argument(
+        '--details',
+        help='Tag pattern to show detailed information (supports wildcards)\nExample: --details "24.4*"'
     )
 
     try:
@@ -202,8 +280,24 @@ def main():
             print(f"Warning: Package '{package}' not found")
             continue
         
-        tags = list_tags(package)
-        print(f"\n{package}: {tags}")
+        if args.details:
+            # Get and display detailed information
+            details = get_image_details(package, args.details)
+            if details:
+                print(f"\n{package} - Detailed Information:")
+                print("-" * 80)
+                for detail in details:
+                    print(f"Tag: {detail['name']}")
+                    print(f"Size: {detail['size_mb']} MB")
+                    print(f"Digest: {detail['digest']}")
+                    print(f"Last Updated: {detail['last_updated']}")
+                    print("-" * 80)
+            else:
+                print(f"\n{package}: No matching tags found for pattern '{args.details}'")
+        else:
+            # Show just tags
+            tags = list_tags(package)
+            print(f"\n{package}: {tags}")
 
 if __name__ == "__main__":
     main() 

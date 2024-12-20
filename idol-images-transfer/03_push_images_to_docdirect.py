@@ -22,6 +22,7 @@ Features:
     - Dry-run mode to preview pushes
     - Registry authentication handling
     - Support for specific package selection
+    - Support for individual image:tag pushing
     - Detailed logging with timestamps
     - Docker daemon health check
 
@@ -30,10 +31,13 @@ Example Usage:
     python 03_push_images_to_docdirect.py
     
     # Execute pushing all images:
-    python 03_push_images_to_docdirect.py --execute
+    python 03_push_images_to_docdirect.py --no-dry-run
     
     # Push specific packages:
-    python 03_push_images_to_docdirect.py --execute --packages content category
+    python 03_push_images_to_docdirect.py --no-dry-run --packages content category
+    
+    # Push individual image:tag:
+    python 03_push_images_to_docdirect.py --no-dry-run --image registry.example.com/content:24.4
 """
 
 import docker
@@ -295,9 +299,23 @@ def get_image_tags(repository, packages, versions):
             tags.append(f"{repository}/{package}:{version}")
     return tags
 
-def process_images(client, repository, packages, versions, log_file_path, dry_run=True, token=None):
+def process_single_image(client, image_tag, log_file_path, dry_run=True, token=None):
     """
-    Process and push all matching Docker images.
+    Process and push a single Docker image.
+    
+    Args:
+        client: Docker client instance
+        image_tag: Full image:tag to push
+        log_file_path: Path to the log file
+        dry_run: If True, only simulate the push operation
+        token: GitLab token for authentication
+    """
+    with open(log_file_path, 'w') as log_file:
+        push_image(client, image_tag, log_file, dry_run, token)
+
+def process_images(client, repository, packages, versions, log_file_path, dry_run=True, token=None, single_image=None):
+    """
+    Process and push Docker images.
     
     Args:
         client: Docker client instance
@@ -307,7 +325,12 @@ def process_images(client, repository, packages, versions, log_file_path, dry_ru
         log_file_path: Path to the log file
         dry_run: If True, only simulate the push operation
         token: GitLab token for authentication
+        single_image: Optional single image:tag to push
     """
+    if single_image:
+        process_single_image(client, single_image, log_file_path, dry_run, token)
+        return
+
     images = client.images.list()
     matching_images = []
     target_tags = get_image_tags(repository, packages, versions)
@@ -340,6 +363,9 @@ Examples:
 
     # Use custom package and version files
     python %(prog)s --packages-file my_packages.txt --versions-file my_versions.txt
+    
+    # Push individual image:tag
+    python %(prog)s --no-dry-run --image registry.example.com/content:24.4
         """
     )
     
@@ -364,6 +390,11 @@ Examples:
         help='Path to file containing versions'
     )
     
+    parser.add_argument(
+        '--image',
+        help='Push a single image:tag instead of processing multiple packages'
+    )
+    
     return parser.parse_args()
 
 def main():
@@ -377,41 +408,46 @@ def main():
         gitlab_token = os.getenv('GITLAB_TOKEN')
         repository = args.repository or os.getenv('NEW_REPO')
 
-        if not repository and gitlab_url:
-            # Try to construct repository from GITLAB_URL if NEW_REPO is not set
-            repository = f"{gitlab_url}/advanced-search/content-services/idol"
+        if not args.image:  # Only check repository if not pushing single image
+            if not repository and gitlab_url:
+                # Try to construct repository from GITLAB_URL if NEW_REPO is not set
+                repository = f"{gitlab_url}/advanced-search/content-services/idol"
 
-        if not repository:
-            raise ValueError("Repository not specified. Either set NEW_REPO in .env file, use --repository, or set GITLAB_URL")
+            if not repository:
+                raise ValueError("Repository not specified. Either set NEW_REPO in .env file, use --repository, or set GITLAB_URL")
 
         if not gitlab_token:
             print("Warning: GITLAB_TOKEN not set in .env file")
             print("You may need to login manually if authentication is required")
 
-        # Default packages and versions if files not provided
-        default_packages = [
-            'content', 'category', 'community', 'find', 'dah', 'omnigroupserver',
-            'agentstore', 'categorisation-agentstore', 'controller', 'coordinator',
-            'dataadmin', 'dih', 'eductionserver', 'qms', 'qms-agentstore',
-            'siteadmin', 'statsserver', 'view'
-        ]
-        default_versions = ['24.4']
+        # Default packages and versions if files not provided and no single image
+        if not args.image:
+            default_packages = [
+                'content', 'category', 'community', 'find', 'dah', 'omnigroupserver',
+                'agentstore', 'categorisation-agentstore', 'controller', 'coordinator',
+                'dataadmin', 'dih', 'eductionserver', 'qms', 'qms-agentstore',
+                'siteadmin', 'statsserver', 'view'
+            ]
+            default_versions = ['24.4']
 
-        # Read packages from file if provided
-        if args.packages_file:
-            packages = read_file_lines(args.packages_file)
-            if packages is None:
-                return
-        else:
-            packages = default_packages
+            # Read packages from file if provided
+            if args.packages_file:
+                packages = read_file_lines(args.packages_file)
+                if packages is None:
+                    return
+            else:
+                packages = default_packages
 
-        # Read versions from file if provided
-        if args.versions_file:
-            versions = read_file_lines(args.versions_file)
-            if versions is None:
-                return
+            # Read versions from file if provided
+            if args.versions_file:
+                versions = read_file_lines(args.versions_file)
+                if versions is None:
+                    return
+            else:
+                versions = default_versions
         else:
-            versions = default_versions
+            packages = []
+            versions = []
 
         # Initialize Docker client
         client = initialize_docker_client()
@@ -421,21 +457,28 @@ def main():
         
         # Print configuration
         print("Configuration:")
-        print(f"GitLab URL: {gitlab_url}")
-        print(f"Repository: {repository}")
+        if args.image:
+            print(f"Single Image: {args.image}")
+        else:
+            print(f"GitLab URL: {gitlab_url}")
+            print(f"Repository: {repository}")
+            print(f"Packages ({len(packages)}):")
+            for pkg in packages:
+                print(f"  - {pkg}")
+            print(f"Versions ({len(versions)}):")
+            for ver in versions:
+                print(f"  - {ver}")
         print(f"Token: {'set' if gitlab_token else 'not set'}")
-        print(f"Packages ({len(packages)}):")
-        for pkg in packages:
-            print(f"  - {pkg}")
-        print(f"Versions ({len(versions)}):")
-        for ver in versions:
-            print(f"  - {ver}")
         print(f"Mode: {'PUSH' if args.no_dry_run else 'DRY RUN'}")
         print(f"Log file: {log_file_path}")
         print("-" * 50)
         
         # Process and push images
-        process_images(client, repository, packages, versions, log_file_path, not args.no_dry_run, gitlab_token)
+        process_images(
+            client, repository, packages, versions, 
+            log_file_path, not args.no_dry_run, gitlab_token,
+            single_image=args.image
+        )
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
