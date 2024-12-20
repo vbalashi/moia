@@ -31,6 +31,9 @@ from dotenv import load_dotenv
 # Create logs directory if it doesn't exist
 pathlib.Path('./logs').mkdir(exist_ok=True)
 
+# Add this near the start of your script, before accessing any env vars
+load_dotenv()
+
 def get_log_file_path():
     """Generate a log file path with current timestamp."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -51,9 +54,22 @@ def parse_list_value(value, default):
     return [item.strip() for item in value.split(',') if item.strip()]
 
 def get_config():
-    load_dotenv()
+    # Add debug prints
+    print(f"Current working directory: {os.getcwd()}")
+    print(f".env file exists: {os.path.exists('.env')}")
+    
+    # Read and print .env file contents directly
+    try:
+        with open('.env', 'r') as env_file:
+            print("Contents of .env file:")
+            print(env_file.read())
+    except Exception as e:
+        print(f"Error reading .env file: {e}")
+    
+    load_dotenv(verbose=True)  # Add verbose flag to see what dotenv is doing
     
     target_repo = os.getenv('TARGET_REPO')
+    print(f"TARGET_REPO value: {target_repo}")  # Debug print
     
     # Parse image names and tags
     image_names = parse_list_value(os.getenv('IMAGE_NAMES'), ['nifi'])
@@ -129,6 +145,10 @@ def retag_images(target_repo, config, execute=False, remove_old=False):
                 
                 # Check if this image/tag combination should be processed
                 if not should_process_image(image_name, tag_name, config):
+                    continue
+                
+                # Skip if the image is already in the target repository
+                if target_repo in tag:
                     continue
                 
                 found_images = True
