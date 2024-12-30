@@ -2,8 +2,8 @@
 Script to explore GitLab container registry and list available packages and their tags.
 
 This script connects to a GitLab instance, explores its container registry,
-and lists available packages and their tags. It's particularly focused on
-exploring the content-services/idol repository.
+and lists available packages and their tags. By default, it explores the
+content-services/idol repository, but this can be overridden.
 
 Environment Variables Required (.env):
     GITLAB_URL: Base URL of the GitLab instance (e.g., https://gitlab.example.com)
@@ -12,6 +12,7 @@ Environment Variables Required (.env):
 Example Usage:
     python 00_explore_gitlab.py                     # List all packages and tags
     python 00_explore_gitlab.py --tag 24.4          # Show detailed info for specific tag
+    python 00_explore_gitlab.py --repository group/project/repo  # Explore different repository
     python 00_explore_gitlab.py -h                  # Show help message
 
 Output:
@@ -223,6 +224,12 @@ if __name__ == "__main__":
         help="Filter results to show detailed information for a specific tag",
         type=str
     )
+    parser.add_argument(
+        "--repository",
+        help="GitLab repository path to explore (e.g., 'group/project/repo')",
+        type=str,
+        default="advanced-search/content-services/idol"
+    )
     args = parser.parse_args()
 
     logger.info("Starting GitLab Explorer")
@@ -230,8 +237,8 @@ if __name__ == "__main__":
     # Initialize GitLab configuration
     config = init_gitlab_config()
     if config:
-        repository_path = "advanced-search/content-services/idol"
-        explore_container_registry(config, repository_path, args.tag)
+        logger.info(f"Exploring repository: {args.repository}")
+        explore_container_registry(config, args.repository, args.tag)
     else:
         logger.error("Failed to initialize GitLab configuration")
     
