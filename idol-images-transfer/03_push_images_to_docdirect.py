@@ -366,6 +366,9 @@ Examples:
     
     # Push individual image:tag
     python %(prog)s --no-dry-run --image registry.example.com/content:24.4
+
+    # Push packages matching a pattern
+    python %(prog)s --package *disco*
         """
     )
     
@@ -386,6 +389,11 @@ Examples:
     )
 
     parser.add_argument(
+        '--package',
+        help='Package name pattern (supports wildcards)'
+    )
+
+    parser.add_argument(
         '--versions-file',
         help='Path to file containing versions'
     )
@@ -396,6 +404,27 @@ Examples:
     )
     
     return parser.parse_args()
+
+def filter_packages_by_pattern(packages, pattern):
+    """Filter packages based on a wildcard pattern."""
+    import fnmatch
+    return [pkg for pkg in packages if fnmatch.fnmatch(pkg, pattern)]
+
+def get_packages_from_images(client, repository=None):
+    """Extract unique package names from available Docker images."""
+    packages = set()
+    for image in client.images.list():
+        for tag in image.tags:
+            # Skip if repository is specified and image doesn't match
+            if repository and not tag.startswith(repository):
+                continue
+            # Extract package name from the image tag
+            parts = tag.split('/')
+            if len(parts) > 1:
+                # Take the last part before the version tag
+                package = parts[-1].split(':')[0]
+                packages.add(package)
+    return sorted(list(packages))
 
 def main():
     """Main function to orchestrate the Docker image push process."""
@@ -420,24 +449,35 @@ def main():
             print("Warning: GITLAB_TOKEN not set in .env file")
             print("You may need to login manually if authentication is required")
 
+        # Initialize Docker client early as we need it for package discovery
+        client = initialize_docker_client()
+
         # Default packages and versions if files not provided and no single image
         if not args.image:
-            default_packages = [
-                'content', 'category', 'community', 'find', 'dah', 'omnigroupserver',
-                'agentstore', 'categorisation-agentstore', 'controller', 'coordinator',
-                'dataadmin', 'dih', 'eductionserver', 'qms', 'qms-agentstore',
-                'siteadmin', 'statsserver', 'view'
-            ]
-            default_versions = ['24.4']
-
-            # Read packages from file if provided
-            if args.packages_file:
-                packages = read_file_lines(args.packages_file)
-                if packages is None:
+            # Get packages from Docker images if pattern is provided
+            if args.package:
+                packages = get_packages_from_images(client, repository)
+                packages = filter_packages_by_pattern(packages, args.package)
+                if not packages:
+                    print(f"No packages match the pattern: {args.package}")
                     return
             else:
-                packages = default_packages
+                # Use default packages if no pattern provided
+                default_packages = [
+                    'content', 'category', 'community', 'find', 'dah', 'omnigroupserver',
+                    'agentstore', 'categorisation-agentstore', 'controller', 'coordinator',
+                    'dataadmin', 'dih', 'eductionserver', 'qms', 'qms-agentstore',
+                    'siteadmin', 'statsserver', 'view'
+                ]
+                # Read packages from file if provided
+                if args.packages_file:
+                    packages = read_file_lines(args.packages_file)
+                    if packages is None:
+                        return
+                else:
+                    packages = default_packages
 
+            default_versions = ['24.4']
             # Read versions from file if provided
             if args.versions_file:
                 versions = read_file_lines(args.versions_file)
@@ -449,9 +489,6 @@ def main():
             packages = []
             versions = []
 
-        # Initialize Docker client
-        client = initialize_docker_client()
-        
         # Get log file path
         log_file_path = get_log_file_path()
         

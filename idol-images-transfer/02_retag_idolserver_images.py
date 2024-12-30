@@ -14,6 +14,7 @@ Features:
     - Dry-run mode to preview changes
     - Option to remove old tags after retagging
     - Support for specific tag transformation
+    - Package name pattern matching
     - Detailed logging with timestamps
     - Docker daemon health check
 
@@ -29,6 +30,9 @@ Example Usage:
 
     # Execute specific tag transformation:
     python 02_retag_idolserver_images.py --execute --source-tag 24.4_fix --target-tag 24.4
+
+    # Retag only specific packages (supports wildcards):
+    python 02_retag_idolserver_images.py --execute --package *disco*
 """
 
 import docker
@@ -57,6 +61,8 @@ def parse_arguments():
                        help='Specific source tag to retag (e.g., 24.4_fix)')
     parser.add_argument('--target-tag',
                        help='Target tag to use (e.g., 24.4)')
+    parser.add_argument('--package',
+                       help='Package name pattern to match (e.g., *disco*)')
     return parser.parse_args()
 
 def get_config():
@@ -66,7 +72,7 @@ def get_config():
         'new_repo': os.getenv('NEW_REPO')
     }
 
-def print_configuration(config, execute, remove_old, source_tag=None, target_tag=None):
+def print_configuration(config, execute, remove_old, source_tag=None, target_tag=None, package_pattern=None):
     """Print the current configuration settings."""
     print("\nConfiguration:")
     print("-" * 50)
@@ -76,6 +82,8 @@ def print_configuration(config, execute, remove_old, source_tag=None, target_tag
         print(f"\nTag Transformation:")
         print(f"  Source tag: {source_tag}")
         print(f"  Target tag: {target_tag}")
+    if package_pattern:
+        print(f"Package filter: {package_pattern}")
     print(f"\nRepositories:")
     print(f"  Source: {config['old_repo']}")
     print(f"  Target: {config['new_repo']}")
@@ -93,7 +101,12 @@ def check_docker_running():
         print("\nDetailed error:", str(e))
         sys.exit(1)
 
-def retag_images(old_repo, new_repo, execute=False, remove_old=False, source_tag=None, target_tag=None):
+def matches_pattern(package_name, pattern):
+    """Check if package name matches the given pattern."""
+    from fnmatch import fnmatch
+    return pattern is None or fnmatch(package_name.lower(), pattern.lower())
+
+def retag_images(old_repo, new_repo, execute=False, remove_old=False, source_tag=None, target_tag=None, package_pattern=None):
     client = check_docker_running()
     try:
         images = client.images.list()
@@ -111,6 +124,10 @@ def retag_images(old_repo, new_repo, execute=False, remove_old=False, source_tag
                     
                     # Skip if we're looking for a specific tag and this isn't it
                     if source_tag and current_tag != source_tag:
+                        continue
+                        
+                    # Skip if package doesn't match the pattern
+                    if not matches_pattern(package_name, package_pattern):
                         continue
                         
                     found_images = True
@@ -136,6 +153,8 @@ def retag_images(old_repo, new_repo, execute=False, remove_old=False, source_tag
                 print(f"No images found from repository '{old_repo}' with tag '{source_tag}'")
             else:
                 print(f"No images found from repository '{old_repo}'")
+            if package_pattern:
+                print(f"Package filter: {package_pattern}")
             
     except docker.errors.APIError as e:
         print(f"Docker API error: {str(e)}")
@@ -155,7 +174,7 @@ def main():
         return
     
     # Print configuration summary
-    print_configuration(config, args.execute, args.remove_old, args.source_tag, args.target_tag)
+    print_configuration(config, args.execute, args.remove_old, args.source_tag, args.target_tag, args.package)
     
     retag_images(
         config['old_repo'],
@@ -163,7 +182,8 @@ def main():
         execute=args.execute,
         remove_old=args.remove_old,
         source_tag=args.source_tag,
-        target_tag=args.target_tag
+        target_tag=args.target_tag,
+        package_pattern=args.package
     )
 
 if __name__ == "__main__":
