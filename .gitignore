@@ -8,10 +8,11 @@
 !.env.example
 
 # Project-specific ignores
-docker-nifi/.*
-docker-nifi/nifi/nifi-components/
-idol-images-transfer/.*
-docker-vulnerabilities/*
+**/nifi-components/
+**/*.gz
+**/*.rpm
+**/*.txt
+docker-vulnerabilities/*/
 
 # Common files to ignore (for files NOT starting with a dot)
 *.log
