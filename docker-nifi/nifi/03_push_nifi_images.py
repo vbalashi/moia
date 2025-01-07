@@ -77,6 +77,10 @@ def get_config():
     if not registry_url and target_repo:
         registry_url = target_repo.split('/')[0]
     
+    # Strip any https:// or http:// prefix from registry URL
+    if registry_url:
+        registry_url = registry_url.replace('https://', '').replace('http://', '').strip()
+    
     return {
         'target_repo': target_repo,
         'registry_url': registry_url,
@@ -115,10 +119,20 @@ def login_to_registry(client, config):
     try:
         if config['registry_url'] and config['gitlab_token']:
             print(f"Logging in to registry {config['registry_url']}...")
+            # Remove any 'https://' prefix from registry URL for Docker login
+            registry_url = config['registry_url'].replace('https://', '').strip()
+            
+            # Force logout first to clear any existing credentials
+            try:
+                client.api.logout(registry=registry_url)
+            except:
+                pass  # Ignore logout errors
+            
+            # Now try login with new credentials
             client.login(
                 username='oauth2',
                 password=config['gitlab_token'],
-                registry=config['registry_url']
+                registry=registry_url
             )
             print("Successfully logged in to registry")
         else:

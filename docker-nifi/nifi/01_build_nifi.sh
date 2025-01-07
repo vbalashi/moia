@@ -51,7 +51,8 @@ print_help() {
     echo "  --nar-dir=DIR    Specify custom NAR extensions directory (default: extensions-24.4)"
     echo
     echo "Examples:"
-    echo "  $0 v1                     # Build NiFi 1.28.1 with default NAR files"
+    echo "  $0 v1                     # Build NiFi 1.28.1 with default NAR files using regular Docker"
+    echo "  $0 v1 --buildx            # Build NiFi 1.28.1 with default NAR files using Buildx"
     echo "  $0 v1 --no-nar            # Build NiFi 1.28.1 without NAR files"
     echo "  $0 v1 --nar-dir=custom    # Build NiFi 1.28.1 with custom NAR directory"
 }
@@ -170,15 +171,16 @@ if ! docker buildx version &> /dev/null; then
     exit 1
 fi
 
-# Check if installation was successful
-if ! docker buildx version &> /dev/null; then
-    echo "Docker Buildx is not available. Please install it following the instructions above."
-    USE_BUILDX=false
-else
-    USE_BUILDX=true
-    # Ensure we have a builder instance
-    if ! docker buildx ls | grep -q "default"; then
-        docker buildx create --name builder --use
+# Make regular build the default
+USE_BUILDX=false
+
+# Only enable buildx if explicitly requested
+if [ "$1" = "--buildx" ]; then
+    if docker buildx version &> /dev/null; then
+        USE_BUILDX=true
+        shift  # Remove --buildx from arguments
+    else
+        echo "Warning: Buildx requested but not available. Falling back to regular build."
     fi
 fi
 
@@ -188,6 +190,8 @@ TAG_SUFFIX=$([ "$USE_NAR" = true ] && echo "-nar" || echo "-no-nar")
 # Build the Docker image
 if [ "$USE_BUILDX" = true ]; then
     echo "Building with Docker Buildx..."
+    docker buildx create --name mybuilder --use --driver-opt network=host
+    docker buildx inspect --bootstrap
     docker buildx build \
         --platform linux/amd64 \
         --build-arg BASE_IMAGE_NAME="${BASE_IMAGE_NAME}" \
@@ -196,8 +200,9 @@ if [ "$USE_BUILDX" = true ]; then
         --build-arg NIFI_BINARY_URL="${NIFI_BINARY_URL}" \
         --build-arg NIFI_COMPONENTS_BASE_DIR="${LOCAL_COMPONENTS_DIR}" \
         --build-arg NAR_EXTENSIONS_DIR="${NAR_EXTENSIONS_DIR}" \
-        -t "nifi:${NIFI_VERSION}${TAG_SUFFIX}" \
+        --tag "nifi:${NIFI_VERSION}${TAG_SUFFIX}" \
         --load \
+        --network=host \
         -f Dockerfile-nifi \
         .
 else

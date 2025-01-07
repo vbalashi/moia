@@ -101,10 +101,22 @@ def docker_login(registry=None, username=None, password=None):
             registry, username, password = get_registry_credentials()
         
         client = docker.from_env()
-        auth_config = {
-            'username': username,
-            'password': password
-        }
+        
+        # Remove 'https://' from registry URL if present
+        if registry and registry.startswith('https://'):
+            registry = registry.replace('https://', '')
+            
+        # For GitLab registry authentication
+        if 'gitlab' in registry.lower():
+            auth_config = {
+                'username': 'gitlab-ci-token',  # Use gitlab-ci-token for GitLab registry
+                'password': password  # Use the GitLab token as password
+            }
+        else:
+            auth_config = {
+                'username': username,
+                'password': password
+            }
         
         # For Docker Hub, don't specify registry in login
         if registry == 'docker.io':
@@ -141,29 +153,6 @@ def read_file_lines(file_path):
     except Exception as e:
         print(f"Error reading file {file_path}: {str(e)}")
         return None
-
-def docker_login(registry, token):
-    """
-    Attempt to login to Docker registry using GitLab token.
-    Returns True if successful, False otherwise.
-    """
-    try:
-        client = docker.from_env()
-        auth_config = {
-            'username': 'oauth2',
-            'password': token
-        }
-        result = client.login(
-            registry=registry,
-            **auth_config
-        )
-        if result and 'Status' in result and 'succeeded' in result['Status'].lower():
-            print(f"Successfully logged in to {registry}")
-            return True
-        return False
-    except Exception as e:
-        print(f"Login failed: {str(e)}")
-        return False
 
 def push_image(client, tag, log_file, dry_run=True, token=None):
     """

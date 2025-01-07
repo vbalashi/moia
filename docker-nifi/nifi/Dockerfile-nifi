@@ -49,7 +49,35 @@ RUN --mount=type=cache,target=/var/cache/downloads \
     && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_LIBS} \
     && rm -rf ${NIFI_BASE_DIR}/${POSTGRESQL_ODBC}
 
-# Download, validate, and expand Apache NiFi binary with caching
+# Key change: Set permissions immediately after directory creation
+RUN mkdir -p ${NIFI_HOME}/conf \
+    && mkdir -p ${NIFI_HOME}/database_repository \
+    && mkdir -p ${NIFI_HOME}/flowfile_repository \
+    && mkdir -p ${NIFI_HOME}/content_repository \
+    && mkdir -p ${NIFI_HOME}/provenance_repository \
+    && mkdir -p ${NIFI_HOME}/python_extensions \
+    && mkdir -p ${NIFI_HOME}/nar_extensions \
+    && mkdir -p ${NIFI_HOME}/templates \
+    && mkdir -p ${NIFI_HOME}/state \
+    && mkdir -p ${NIFI_LOG_DIR} \
+    # Set permissions immediately
+    && chown -R 1001:0 ${NIFI_BASE_DIR} \
+    && chown -R 1001:0 ${NIFI_LOG_DIR} \
+    && chmod -R 775 ${NIFI_HOME} \
+    && chmod -R 775 ${NIFI_LOG_DIR} \
+    && chmod -R g=u ${NIFI_BASE_DIR}
+
+# Add this new section for runtime directories
+RUN mkdir -p ${NIFI_HOME}/run \
+    && chown -R 1001:0 ${NIFI_HOME}/run \
+    && chmod -R 775 ${NIFI_HOME}/run
+
+# Remove duplicate permission settings at the end
+# Keep only necessary final checks
+RUN chgrp -R 0 ${NIFI_BASE_DIR} \
+    && chmod -R g=u ${NIFI_BASE_DIR}
+
+# First RUN: Download and extract NiFi with verification
 RUN --mount=type=cache,target=/var/cache/downloads \
     NIFI_BINARY_FILENAME="nifi-${NIFI_VERSION}-bin.zip" && \
     CACHE_FILE="/var/cache/downloads/${NIFI_BINARY_FILENAME}" && \
@@ -60,18 +88,36 @@ RUN --mount=type=cache,target=/var/cache/downloads \
     unzip ${NIFI_BASE_DIR}/${NIFI_BINARY_FILENAME} -d ${NIFI_BASE_DIR} && \
     rm ${NIFI_BASE_DIR}/${NIFI_BINARY_FILENAME} && \
     mv ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION} ${NIFI_HOME} && \
-    mkdir -p -m 775 ${NIFI_HOME}/conf \
-    && mkdir -p -m 775 ${NIFI_HOME}/database_repository \
-    && mkdir -p -m 775 ${NIFI_HOME}/flowfile_repository \
-    && mkdir -p -m 775 ${NIFI_HOME}/content_repository \
-    && mkdir -p -m 775 ${NIFI_HOME}/provenance_repository \
-    && mkdir -p -m 775 ${NIFI_HOME}/python_extensions \
-    && mkdir -p -m 775 ${NIFI_HOME}/nar_extensions \
-    && mkdir -p -m 775 opt/sample/data \
-    && mkdir -p -m 775 ${NIFI_HOME}/templates \
-    && mkdir -p -m 775 ${NIFI_HOME}/state \
-    && mkdir -p -m 775 ${NIFI_LOG_DIR} \
-    && ln -s ${NIFI_HOME} ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION}
+    echo "=== After extraction ===" && \
+    ls -la ${NIFI_BASE_DIR} && \
+    ls -la ${NIFI_HOME}
+
+# Second RUN: Create directories with verification
+RUN mkdir -p ${NIFI_HOME}/conf \
+    ${NIFI_HOME}/database_repository \
+    ${NIFI_HOME}/flowfile_repository \
+    ${NIFI_HOME}/content_repository \
+    ${NIFI_HOME}/provenance_repository \
+    ${NIFI_HOME}/python_extensions \
+    ${NIFI_HOME}/nar_extensions \
+    ${NIFI_HOME}/templates \
+    ${NIFI_HOME}/state \
+    ${NIFI_HOME}/bin \
+    ${NIFI_LOG_DIR} && \
+    echo "=== After directory creation ===" && \
+    ls -la ${NIFI_HOME} && \
+    ls -la ${NIFI_HOME}/bin
+
+# Third RUN: Create symbolic link and nifi-env.sh with verification
+RUN mkdir -p ${NIFI_HOME}/bin && \
+    ln -s ${NIFI_HOME} ${NIFI_BASE_DIR}/nifi-${NIFI_VERSION} && \
+    echo '#!/bin/sh' > ${NIFI_HOME}/bin/nifi-env.sh && \
+    echo 'export JAVA_OPTS="-Djava.awt.headless=true --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED"' >> ${NIFI_HOME}/bin/nifi-env.sh && \
+    chmod +x ${NIFI_HOME}/bin/nifi-env.sh && \
+    echo "=== Final structure ===" && \
+    ls -la ${NIFI_BASE_DIR} && \
+    ls -la ${NIFI_HOME}/bin && \
+    cat ${NIFI_HOME}/bin/nifi-env.sh
 
 COPY ${NIFI_COMPONENTS_BASE_DIR}/scripts ${NIFI_HOME}/python_extensions/
 COPY ${NIFI_COMPONENTS_BASE_DIR}/${NAR_EXTENSIONS_DIR} ${NIFI_HOME}/nar_extensions/
@@ -90,8 +136,14 @@ VOLUME ${NIFI_LOG_DIR} \
        ${NIFI_HOME}/templates \
        ${NIFI_HOME}/state 
 
-# Clear nifi-env.sh in favour of configuring all environment variables in the Dockerfile
-RUN echo "#!/bin/sh\n" > $NIFI_HOME/bin/nifi-env.sh
+# Add these JVM arguments to allow access to internal classes
+ENV JAVA_OPTS="-Djava.awt.headless=true \
+    --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
+    --add-opens=java.base/java.io=ALL-UNNAMED"
+
+# Make sure this is set before the ENTRYPOINT
+RUN echo "#!/bin/sh\n\
+export JAVA_OPTS=\"${JAVA_OPTS}\"\n" > $NIFI_HOME/bin/nifi-env.sh
 
 RUN chgrp -R 0 ${NIFI_BASE_DIR} \
     && chmod -R g=u ${NIFI_BASE_DIR}
